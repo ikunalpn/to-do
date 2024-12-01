@@ -24,6 +24,11 @@ todoRouter.post('/deactivate', (req, res) => {
     db.dbCud(res, 'update', 'users', new Map([['active', '0']]),    `where id=${req.body.userId}, User ${req.body.userId} deactivated! `, 'Deactivating User failed!'); // Deactivating the specified user
 });
 
+// Update Task Completion Status
+todoRouter.post('/update-completion', async (req, res) => {
+    db.updateTaskCom(req,res);
+} );
+
 
 function getFormattedTodayDate() {
     const today = new Date();
@@ -35,9 +40,8 @@ function getFormattedTodayDate() {
 
 
 function getCurrentTime() {
-    return new Date().toLocaleTimeString('en-GB', { hour12: false }); 
+    return new Date().toLocaleTimeString('en-GB', { hour12: true}); 
 }
-
 todoRouter.post('/addtodo', authM.chkLogin, (req, res) => {
     const { title, details } = req.body; 
     const uid = req.session.uid; 
@@ -70,57 +74,27 @@ todoRouter.post('/addtodo', authM.chkLogin, (req, res) => {
     db.dbCud(res, 'insert', 'tasks', todo, null, `Task ${title} added!`, `Adding Task failed!`);
 });
 
+todoRouter.post('/edittodo', authM.chkLogin, (req, res) => {
+    const { titleId, newTitle, newDetails } = req.body; // Get inputs from request body
+    const uid = req.session.uid; // Get User ID from session
 
-todoRouter.post('/edittodo', authM.chkLogin, async (req, res) => {
-    const { titleId, title, newTitle, newDetails } = req.body; 
-    const uid = req.session.uid; 
-
-
-    console.log("Request to edit task:");
-    console.log("Title ID:", titleId);
-    console.log("Current Title:", title);
-    console.log("New Title:", newTitle);
-    console.log("New Details:", newDetails);
-    console.log("User ID:", uid);
-
-    if (!titleId || !title || !uid || (!newTitle && !newDetails)) {
-        return res.status(400).json({
-            message: "Updating Task failed!",
-            error: "Task titleId, title, user ID, and at least one of new title or new details must be provided."
-        });
+    // Validate input parameters
+    if (!titleId || (!newTitle && !newDetails) || !uid) {
+        return res.status(400).json({ message: 'Invalid input data.' });
     }
 
-    
-    const checkCondition = `id = ? AND uid = ? AND title = ?`;
-    const checkColValMap = new Map([
-        ['title', title], 
-    ]);
+    const colValMap = new Map(); // This will hold the columns and their updated values
+    if (newTitle) colValMap.set('title', newTitle); // Add new title to map
+    if (newDetails) colValMap.set('details', newDetails); // Add new details to map
 
-    
-    const checkValues = [titleId, uid, title]; 
+    const condition = `id = ? AND uid = ?`; // Condition for the record to update
+    const conditionValues = [titleId, uid]; // Ensure you collect these as integers
 
-    
-    db.dbCud(res, 'select', 'tasks', checkColValMap, checkCondition, 'Task found', 'Task not found', (taskCheckResult) => {
-        
-        if (!taskCheckResult || taskCheckResult.length === 0) {
-            return res.status(404).json({ message: `Task with title "${title}" and ID "${titleId}" not found for this user.` });
-        }
-
-        
-        const updateColValMap = new Map();
-        if (newTitle) {
-            updateColValMap.set('title', newTitle);
-        }
-        if (newDetails) {
-            updateColValMap.set('details', newDetails);
-        }
-
-        
-        db.dbCud(res, 'update', 'tasks', updateColValMap, `id = ? AND uid = ?`, 
-            `Task "${title}" updated successfully!`, 
-            `Failed to update task.`, [titleId, uid]);
-    });
+    // Call dbCud to execute the update
+    db.dbCud(res, 'update', 'tasks', colValMap, condition, 'Task updated successfully', 'Failed to update task', conditionValues);
 });
+
+
 
 
 todoRouter.post('/gettodo', authM.chkLogin, (req, res) => {

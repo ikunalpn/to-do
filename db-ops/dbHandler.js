@@ -2,7 +2,7 @@ var myDB = require('mysql2');
 var data = {};
 var md5 = require('md5');
 const { head } = require('../routes/auth');
-
+const cookieParser = require('cookie-parser');
 var conPool = myDB.createPool(
     {
         connectionLimit: 100, 
@@ -167,7 +167,7 @@ function dbRead(res, table, condition = null, values = [], limit = null, order =
     });
 }
 
-function dbCud(res, cudOp, table, colValMap, condition = null, successMessage, errorMessage) {
+function dbCud(res, cudOp, table, colValMap, condition = null, successMessage, errorMessage, conditionValues =[]) {
     let query;
     let values = [];  
 
@@ -189,11 +189,43 @@ function dbCud(res, cudOp, table, colValMap, condition = null, successMessage, e
 
         case 'update':
             const updateOperations = [];
+            const updateValues = []; // This holds the values to update
+
+            // Collect update operations and values
             colValMap.forEach((value, key) => {
-                updateOperations.push(`${key} = ?`);
-                values.push(value); 
+                updateOperations.push(`${key} = ?`); // Prepare "SET" clause
+                updateValues.push(value); // Collect values for the update
             });
-            query = `UPDATE ${table} SET ${updateOperations.join(', ')} WHERE ${condition}`;
+
+            // Construct the update query
+            if (condition) {
+                query = `UPDATE ${table} SET ${updateOperations.join(', ')} WHERE ${condition}`;
+            }
+
+            // Log the generated query for debugging
+            console.log('Generated Update Query:', query);
+            console.log('Update Values:', updateValues);
+            console.log('Condition Values:', conditionValues);
+
+            // Combine values for placeholders, ensuring condition values are included
+            values = [...updateValues, ...conditionValues]; 
+
+            // Execute the query using combined values
+            conPool.query(query, values, (err, result) => {
+                if (err) {
+                    console.error('Error updating data:', err);
+                    return res.status(500).json({ message: errorMessage, error: err.message });
+                }
+
+                // Check if any rows were affected
+                if (result.affectedRows === 0) {
+                    return res.status(404).json({ message: 'Task not found to update' });
+                }
+
+                res.status(200).json({ message: successMessage });
+            });
+            return; // Exit the function to avoid further processing
+
             break;
 
         case 'delete':
@@ -237,6 +269,56 @@ function deactivateTask(req, res) {
     doCub(res, 'update', 'tasks', colValMap, `id = ?`, 'Task deactivated successfully', 'Error deactivating task');
 }
 
+
+function updateTaskCom(req, res) {
+    {
+        const { taskId, completed } = req.body; // completed is expected to be 0 or 1
+        const table = 'tasks'; // Specify your table name
+        const errorMessage = 'Failed to update task completion status';
+        const successMessage = 'Task completion status successfully updated';
+    
+        // Define the condition and values
+        const condition = 'id = ?'; // Where clause condition
+        const conditionValues = [taskId]; // Placeholder values for the condition
+    
+        try {
+            const updateOperations = [];
+            const updateValues = [];
+    
+            // Prepare the SET clause based on the completed status
+            updateOperations.push('completed = ?'); // Specify the field to update
+            updateValues.push(completed === 1 ? 1 : 0); // Set the correct value for completion
+    
+            // Construct the update query
+            const query = `UPDATE ${table} SET ${updateOperations.join(', ')} WHERE ${condition}`;
+    
+            console.log('Generated Update Query:', query);
+            console.log('Update Values:', updateValues);
+            console.log('Condition Values:', conditionValues);
+    
+            // Combine values for placeholders
+            const values = [...updateValues, ...conditionValues];
+    
+            // Execute the query using combined values
+            conPool.query(query, values, (err, result) => {
+                if (err) {
+                    console.error('Error updating data:', err);
+                    return res.status(500).json({ message: errorMessage, error: err.message });
+                }
+    
+                // Check if any rows were affected
+                if (result.affectedRows === 0) {
+                    return res.status(404).json({ message: 'Task not found to update' });
+                }
+    
+                res.status(200).json({ message: successMessage });
+            });
+        } catch (error) {
+            console.error('Error processing request:', error);
+            res.status(500).json({ message: errorMessage, error: error.message });
+        }
+    }
+}
 module.exports = {
     getUserTypes,
     createUser,
@@ -245,5 +327,6 @@ module.exports = {
     dbRead,
     activateTask,
     deactivateTask,
-    conPool,updateUser
+    conPool, updateUser,
+    updateTaskCom
 };
